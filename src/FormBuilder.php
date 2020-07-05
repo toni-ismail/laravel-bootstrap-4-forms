@@ -2,6 +2,8 @@
 
 namespace NetoJose\Bootstrap4Forms;
 
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Illuminate\Support\ViewErrorBag;
 
 class FormBuilder
@@ -15,7 +17,16 @@ class FormBuilder
         if (method_exists($this, $formatter)) {
             $value = $this->$formatter($value);
         }
+
         $this->attrs[$key] = $value;
+    }
+
+    private function getNameDotNotation($name){
+        $nameDotNotationArr = collect(preg_split('/(\[[^]]+\])/', $name, -1, PREG_SPLIT_DELIM_CAPTURE));
+        $nameDotNotation = $nameDotNotationArr->map(function($ndn){
+            return preg_replace('/(\[)|(\])/', '', $ndn );
+        })->filter(function($ndn){ return !Str::of($ndn)->isEmpty();})->join('.');
+        return $nameDotNotation;
     }
 
     private function formatMethod($value)
@@ -150,6 +161,11 @@ class FormBuilder
             $optionsList .= '<option ' . $attrs . '>' . $label . '</option>';
         }
 
+        if(count($options) == 0 && ($fieldValue != null || $fieldValue != "")){
+            $attrs = $this->buildHtmlAttrs(['value' => $fieldValue, 'selected' => true], false);
+            $optionsList .= '<option ' . $attrs . '>' . $fieldValue . '</option>';
+        }
+
         $attributes = $this->getInputAttributes();
         $attrs = $this->buildHtmlAttrs($attributes);
         return $this->wrapperInput('<select ' . $attrs . '>' . $optionsList . '</select>');
@@ -239,7 +255,8 @@ class FormBuilder
         $id = $this->getId();
 
         if (!$disableValidation && $this->errors()->count() > 0) {
-            $class .= $this->errors()->has($name) ? ' is-invalid' : ' is-valid';
+
+            $class .= $this->errors()->has($this->getNameDotNotation($name)) ? ' is-invalid' : ' is-valid';
         }
 
         $attributes = [
@@ -261,9 +278,10 @@ class FormBuilder
 
         if ($this->isRadioOrCheckbox()) {
             if ($this->hasOldInput()) {
-                $isChecked = old($name) === $value;
+
+                $isChecked = old($this->getNameDotNotation($name)) === $value;
             } else {
-                $isChecked = isset($formData[$name]) ? $formData[$name] === $value : $checked;
+                $isChecked = Arr::get($formData, $this->getNameDotNotation($name)) != null ? Arr::get($formData, $this->getNameDotNotation($name)) == $value : $checked;
             }
             $attributes['checked'] = $isChecked;
         }
@@ -284,6 +302,10 @@ class FormBuilder
     private function renderLabel(): string
     {
         extract($this->get('label', 'formInline', 'render'));
+
+        if(!$label){
+            return '';
+        }
 
         $class = in_array($render, ['checkbox', 'radio']) ? 'form-check-label' : '';
         if ($formInline) {
@@ -398,11 +420,18 @@ class FormBuilder
         }
 
         if ($this->hasOldInput()) {
-            return old($name, $value);
+            return old($this->getNameDotNotation($name), $value);
         }
 
-        $fromFill = $formData[$name] ?? null;
-
+//        dd($formData);
+//        $fromFill = $formData[$name] ?? null;
+//        dd($formData);
+//        dd(Arr::get($formData, 'content.en'));
+        $fromFill = Arr::get($formData, $this->getNameDotNotation($name)) ?? null;
+        if($fromFill != null){
+            // clean string
+            $fromFill = preg_replace(array('/<(\?|\%)\=?(php)?/', '/(\%|\?)>/', '#<script(.*?)>(.*?)</script>#is'), [''], $fromFill);
+        }
         return $value ?? $fromFill;
     }
 
